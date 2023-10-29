@@ -26,5 +26,7 @@
 
 ### NT-Xent loss
 ![image](https://github.com/pym96/contrastive_learning/assets/105438207/a7300e42-2c9f-4aca-8ccb-b5c234a8cea5)
+### ↑Wrong formula, ↓ Rigth formula
+![image](https://github.com/pym96/contrastive_learning/assets/105438207/f897a7b9-3dfb-4733-b40b-2f1b9bb03d65)
 
 
