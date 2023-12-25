@@ -7,7 +7,7 @@ from models import *
 from datasets import *
 
 parser = argparse.ArgumentParser(description='Inpainting Error Maximization')
-parser.add_argument('data_path', type=str)
+parser.add_argument('data_path', type=str, default=r"C:\Users\pym66\Documents\文献\writing_paper\code\iem-code\datasets")
 parser.add_argument('--size', type=int, default=128)
 parser.add_argument('--split', type=str, default='test')
 parser.add_argument('--batch-size', type=int, default=1020)
@@ -26,7 +26,8 @@ transform = transforms.Compose([
     transforms.ToTensor()
 ])
 
-data = FlowersDataset(args.data_path, 'test', transform)
+
+data = MedicalImagesDataset(args.data_path, 'test', transform)
 loader = DataLoader(data, batch_size=args.batch_size, shuffle=False, num_workers=2, pin_memory=True)
 
 # naive inpainting module that uses a Gaussian filter to predict values of masked out pixels
