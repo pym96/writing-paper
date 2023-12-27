@@ -19,6 +19,8 @@ from torchvision import transforms
 from icecream import ic
 from datetime import datetime
 
+from metrics import *
+from models import *
 
 def calc_loss(outputs, low_res_label_batch, ce_loss, dice_loss, dice_weight:float=0.8):
     low_res_logits = outputs['low_res_logits']
@@ -52,6 +54,50 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
 
     trainloader = DataLoader(db_train, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True,
                              worker_init_fn=worker_init_fn)
+    
+    # TODO: Then do something here, add IEM loss function here
+    inpainter = Inpainter(args.sigma, args.kernel_size, args.reps, args.scale_factor).to(args.device)
+    boundary = Boundary().to(args.device)
+    
+    for batch_dix, x in enumerate(trainloader):
+        x = x.to("cuda")
+        
+        # initializes a mask for each sample in the mini batch as a centered square
+        mask = torch.nn.Parameter(torch.zeros(len(x), 1, args.size, args.size).to(args.device))
+    
+        init_start, init_end = args.size//5, args.size - args.size//5
+        mask.data[:,:,init_start:init_end,init_start:init_end].fill_(1.0)
+        
+        for i in range(args.iters):
+            foreground = x * mask
+            background = x * (1-mask)
+
+            pred_foreground = inpainter(background, (1-mask))
+            pred_background = inpainter(foreground, mask)
+
+            # inpainting error is equiv to negative coeff. of constraint between foreground and background
+            inp_error = neg_coeff_constraint(x, mask, pred_foreground, pred_background)
+            # diversity term is the total deviation of foreground and background pixels
+            mask_diversity = diversity(x, mask, foreground, background)
+
+            # regularized IEM objective (to be maximized) is the inpainting error minus diversity regularizer
+            total_loss = inp_error - args.lmbda * mask_diversity
+            total_loss.sum().backward()
+
+            with torch.no_grad():
+                grad = mask.grad.data
+                
+                # we only update mask pixels that are in the boundary AND have non-zero gradient
+                update_bool = boundary(mask) * (grad != 0)
+                # pixels with positive gradients are set to 1 and with negative gradients are set to 0
+                mask.data[update_bool] = (grad[update_bool] > 0).float()
+                grad.zero_()
+                
+                # smoothing procedure: we set a pixel to 1 if there are 4 or more 1-valued pixels in its 3x3 neighborhood
+                mask.data = (F.avg_pool2d(mask, 3, 1, 1, divisor_override=1) >= 4).float()
+                
+    # TODO： Add some constraints here
+
     if args.n_gpu > 1:
         model = nn.DataParallel(model)
     model.train()

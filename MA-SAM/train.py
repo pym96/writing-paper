@@ -41,6 +41,14 @@ parser.add_argument('--module', type=str, default='sam_fact_tt_image_encoder')
 parser.add_argument('--dice_param', type=float, default=0.8)
 parser.add_argument('--lr_exp', type=float, default=7, help='The learning rate decay expotential')
 
+# iem param
+parser.add_argument('--sigma', type=float, default=5.0)
+parser.add_argument('--kernel-size', type=int, default=11)
+parser.add_argument('--reps', type=int, default=2)
+parser.add_argument('--lmbda', type=float, default=0.001)
+parser.add_argument('--scale-factor', type=int, default=1)
+parser.add_argument('--device',  type=str, default='cuda')
+
 # acceleration choices
 parser.add_argument('--tf32', action='store_true', help='If activated, use tf32 to accelerate the training process')
 parser.add_argument('--compile', action='store_true', help='If activated, compile the training model for acceleration')
