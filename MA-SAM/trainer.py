@@ -54,49 +54,6 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
 
     trainloader = DataLoader(db_train, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True,
                              worker_init_fn=worker_init_fn)
-    
-    # TODO: Then do something here, add IEM loss function here
-    inpainter = Inpainter(args.sigma, args.kernel_size, args.reps, args.scale_factor).to(args.device)
-    boundary = Boundary().to(args.device)
-    
-    for batch_dix, x in enumerate(trainloader):
-        x = x.to("cuda")
-        
-        # initializes a mask for each sample in the mini batch as a centered square
-        mask = torch.nn.Parameter(torch.zeros(len(x), 1, args.size, args.size).to(args.device))
-    
-        init_start, init_end = args.size//5, args.size - args.size//5
-        mask.data[:,:,init_start:init_end,init_start:init_end].fill_(1.0)
-        
-        for i in range(args.iters):
-            foreground = x * mask
-            background = x * (1-mask)
-
-            pred_foreground = inpainter(background, (1-mask))
-            pred_background = inpainter(foreground, mask)
-
-            # inpainting error is equiv to negative coeff. of constraint between foreground and background
-            inp_error = neg_coeff_constraint(x, mask, pred_foreground, pred_background)
-            # diversity term is the total deviation of foreground and background pixels
-            mask_diversity = diversity(x, mask, foreground, background)
-
-            # regularized IEM objective (to be maximized) is the inpainting error minus diversity regularizer
-            total_loss = inp_error - args.lmbda * mask_diversity
-            total_loss.sum().backward()
-
-            with torch.no_grad():
-                grad = mask.grad.data
-                
-                # we only update mask pixels that are in the boundary AND have non-zero gradient
-                update_bool = boundary(mask) * (grad != 0)
-                # pixels with positive gradients are set to 1 and with negative gradients are set to 0
-                mask.data[update_bool] = (grad[update_bool] > 0).float()
-                grad.zero_()
-                
-                # smoothing procedure: we set a pixel to 1 if there are 4 or more 1-valued pixels in its 3x3 neighborhood
-                mask.data = (F.avg_pool2d(mask, 3, 1, 1, divisor_override=1) >= 4).float()
-                
-    # TODO： Add some constraints here
 
     if args.n_gpu > 1:
         model = nn.DataParallel(model)
@@ -122,21 +79,60 @@ def trainer_run(args, model, snapshot_path, multimask_output, low_res):
     
     iterator = tqdm(range(max_epoch), ncols=70)
     
+    inpainter = Inpainter(args.sigma, args.kernel_size, args.reps, args.scale_factor).to(args.device)
+    boundary = Boundary().to(args.device)
+    
     for epoch_num in iterator:
         for i_batch, sampled_batch in enumerate(trainloader):
             image_batch, label_batch = sampled_batch['image'], sampled_batch['label'] 
             image_batch = image_batch.unsqueeze(2)
             image_batch = torch.cat((image_batch, image_batch, image_batch), dim=2)
+  
             hw_size = image_batch.shape[-1]
             label_batch = label_batch.contiguous().view(-1, hw_size, hw_size)
 
             low_res_label_batch = sampled_batch['low_res_label']
             image_batch, label_batch = image_batch.cuda(), label_batch.cuda()
+            
+            # TODO: Use iem to process image_batch, and then take it as trained data, I think this is reasonable
+            pre_mask = torch.nn.Parameter(torch.zeros(len(image_batch), 1, args.size, args.size).to(args.device))
+            init_start, init_end = args.size//5, args.size - args.size//5
+            pre_mask.data[:,:,init_start:init_end,init_start:init_end].fill_(1.0)
+        
+            for i in range(args.iters):
+                foreground = image_batch * pre_mask
+                background = image_batch * (1-pre_mask)
+
+                pred_foreground = inpainter(background, (1-pre_mask))
+                pred_background = inpainter(foreground, pre_mask)
+
+                # inpainting error is equiv to negative coeff. of constraint between foreground and background
+                inp_error = neg_coeff_constraint(image_batch, pre_mask, pred_foreground, pred_background)
+                # diversity term is the total deviation of foreground and background pixels
+                mask_diversity = diversity(image_batch, pre_mask, foreground, background)
+
+                # regularized IEM objective (to be maximized) is the inpainting error minus diversity regularizer
+                total_loss = inp_error - args.lmbda * mask_diversity
+                total_loss.sum().backward()
+
+                with torch.no_grad():
+                    grad = pre_mask.grad.data
+                    
+                    # we only update mask pixels that are in the boundary AND have non-zero gradient
+                    update_bool = boundary(pre_mask) * (grad != 0)
+                    # pixels with positive gradients are set to 1 and with negative gradients are set to 0
+                    pre_mask.data[update_bool] = (grad[update_bool] > 0).float()
+                    grad.zero_()
+                    
+                    # smoothing procedure: we set a pixel to 1 if there are 4 or more 1-valued pixels in its 3x3 neighborhood
+                    pre_mask.data = (F.avg_pool2d(pre_mask, 3, 1, 1, divisor_override=1) >= 4).float()
+                
+                
             low_res_label_batch = low_res_label_batch.cuda()
             
             if args.use_amp:
                 with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=args.use_amp):
-                    outputs = model(image_batch, multimask_output, args.img_size)
+                    outputs = model(pre_mask, multimask_output, args.img_size)
                     loss, loss_ce, loss_dice = calc_loss(outputs, label_batch, ce_loss, dice_loss, args.dice_param)
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
