@@ -1,0 +1,2 @@
+[13:51:05.230] Namespace(root_path='../synapseCT/Training/2D_all_5slice', output='../outputs', num_classes=12, batch_size=3, n_gpu=8, base_lr=0.0008, max_epochs=400, stop_epoch=300, deterministic=1, img_size=512, seed=1234, vit_name='vit_h', ckpt='../Pretrained/sam_vit_h_4b8939.pth', adapt_ckpt=None, rank=32, scale=1.0, warmup=True, warmup_period=250, AdamW=True, module='sam_fact_tt_image_encoder', dice_param=0.8, lr_exp=7, tf32=True, compile=False, use_amp=True, skip_hard=True)
+[13:51:05.403] 126 iterations per epoch. 50400 max iterations 
